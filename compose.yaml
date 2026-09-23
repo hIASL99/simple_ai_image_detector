@@ -1,15 +1,17 @@
 services:
   aidetect:
-    build:
-      context: .
-      args:
-        # false builds a ~900 MB image with no weights; mount a populated
-        # HF cache at /opt/models instead. true bakes them in (~3.5 GB) so
-        # the container needs no network at all.
-        BAKE_MODELS: "true"
-    image: aidetect:latest
+    image: matthiaswindisch/simple_ai_image_detector:0.1.0
+    # Build locally instead of pulling. MODEL_DIR=models adds the CC-BY-NC
+    # member (0.0008 AUROC better, not redistributable); BAKE_MODELS=false
+    # builds a ~1.5 GB image with no weights, to be paired with the volume
+    # mount below.
+    # build:
+    #   context: .
+    #   args:
+    #     MODEL_DIR: models_permissive
+    #     BAKE_MODELS: "true"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       # 0 lets the detector pick the physical core count, which measured about
       # twice as fast as using every SMT thread.
@@ -17,8 +19,14 @@ services:
       AIDETECT_OPERATING_POINT: "fpr5"
       AIDETECT_MAX_BYTES: "33554432"
       AIDETECT_MAX_FILES: "16"
-      # models_permissive drops the one CC-BY-NC checkpoint for 0.0008 AUROC.
-      # AIDETECT_MODEL_DIR: /app/models_permissive
     # volumes:
     #   - ./hf-cache:/opt/models:ro   # with BAKE_MODELS=false
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      # The ensemble takes a few seconds to load; without this an orchestrator
+      # kills the container before it is ever ready.
+      start_period: 90s
+      retries: 3
     restart: unless-stopped

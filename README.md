@@ -8,6 +8,14 @@ Scope: **fully synthetic images** from generators like Stable Diffusion, SDXL, F
 DALL·E, Imagen, Firefly and Ideogram. It is *not* a deepfake-face detector, and AI-upscaled or
 AI-retouched photographs are a documented blind spot — see [Limitations](#limitations).
 
+```
+docker run -p 8000:8000 matthiaswindisch/simple_ai_image_detector:0.1.0
+curl -F "files=@photo.jpg" http://127.0.0.1:8000/detect
+```
+
+Or as a CLI: `python -m aidetect photo.jpg`. Full API and container reference is
+[below](#http-api-and-container).
+
 ## Results
 
 Leave-one-generator-out across **3,756 images and 26 generators**: every generator is held out in
@@ -85,52 +93,198 @@ print(d.predict("photo.jpg").as_dict())
 
 ## HTTP API and container
 
+Published image, pulls without a login:
+
 ```
-podman build -t aidetect .          # or docker build
-podman run -p 8000:8000 aidetect
-curl -F "files=@photo.jpg" localhost:8000/detect
+docker run -p 8000:8000 matthiaswindisch/simple_ai_image_detector:0.1.0
+curl -F "files=@photo.jpg" http://127.0.0.1:8000/detect
 ```
+
+1.8 GB compressed, `linux/amd64`. Tags: `0.1.0`, `latest`. Model weights are
+baked in, so the first request works immediately and the container never
+reaches the network. Give it ~5 s to load the ensemble at startup; poll
+`/health` if you need to know when it is ready.
+
+Build it yourself instead (`podman` works identically everywhere below):
+
+```
+docker build -t aidetect --build-arg MODEL_DIR=models_permissive .
+docker compose up            # compose.yaml is in the repo
+```
+
+Or with no container at all:
+
+```
+pip install -e ".[api]"
+uvicorn aidetect.api:app --host 0.0.0.0 --port 8000
+```
+
+### Endpoints
+
+| | |
+|---|---|
+| `POST /detect` | score 1–16 images. multipart, field name `files` |
+| `GET /health` | `200` when loaded, `503` with the reason while it is not |
+| `GET /info` | ensemble members and licences, thresholds, limits |
+| `GET /docs` | interactive OpenAPI browser |
+| `GET /openapi.json` | the schema, for generating clients |
+
+**`POST /detect`** takes two optional query parameters:
+
+| parameter | default | meaning |
+|---|---|---|
+| `operating_point` | `fpr5` | `fpr1`, `fpr5`, `fpr10` or `balanced`. Moves the decision line only — the score is unchanged |
+| `metadata` | `true` | `false` judges pixels alone and skips EXIF/PNG/C2PA provenance |
+
+```
+curl -F "files=@a.jpg" -F "files=@b.png" \
+     "http://127.0.0.1:8000/detect?operating_point=fpr1&metadata=false"
+```
+
+### Response
 
 ```json
-{"results": [{"filename": "photo.jpg", "verdict": "AI-GENERATED", "p_ai": 0.9694,
-              "threshold": 0.7115, "low_threshold": 0.5438,
-              "basis": "pixel ensemble (moderate, 5 models)",
-              "per_model": {"clip-probe": 0.9966, "commforensics384": 0.9377, "...": 0.0},
-              "metadata_says_ai": false, "truncated": false, "error": null}],
- "elapsed_ms": 807, "operating_point": "fpr5"}
+{
+  "results": [
+    {
+      "filename": "photo.jpg",
+      "verdict": "AI-GENERATED",
+      "p_ai": 0.9694,
+      "threshold": 0.7115,
+      "low_threshold": 0.5438,
+      "basis": "pixel ensemble (moderate, 5 models)",
+      "per_model": {"clip-probe": 0.9966, "commforensics384": 0.9377,
+                    "commforensics224": 0.9499, "haywoodsloan": 0.9884},
+      "metadata_says_ai": false,
+      "metadata_generator": null,
+      "truncated": false,
+      "error": null
+    }
+  ],
+  "elapsed_ms": 807,
+  "operating_point": "fpr5"
+}
 ```
 
-| endpoint | purpose |
+`results` is always the same length as the upload list and in the same order,
+including entries that failed — a bad file does not shift the ones after it, and
+the same filename twice gets two results.
+
+| field | |
 |---|---|
-| `POST /detect` | multipart upload, one or many files. `?operating_point=fpr1\|fpr5\|fpr10\|balanced`, `?metadata=false` |
-| `GET /health` | 200 when the ensemble is loaded, 503 with the reason while it is not |
-| `GET /info` | ensemble members and their licences, thresholds, limits |
-| `GET /docs` | generated OpenAPI browser |
+| `verdict` | `AI-GENERATED`, `AI-EDITED`, `REAL`, `UNCERTAIN` or `ERROR` |
+| `p_ai` | calibrated probability the image was generated; `null` on `ERROR` |
+| `threshold` | the line for this request. `p_ai >= threshold` → AI-GENERATED |
+| `low_threshold` | below it → REAL. Between the two → UNCERTAIN |
+| `basis` | why this verdict, in words — metadata, pixel ensemble, or the decode failure |
+| `per_model` | each member's calibrated score, for debugging a surprising call |
+| `metadata_says_ai` | structured provenance (A1111 block, ComfyUI graph, C2PA) was found |
+| `metadata_generator` | which generator the metadata names, when it names one |
+| `truncated` | the file was short and its tail decoded as flat grey; the verdict is forced to `UNCERTAIN` |
 
-Without a container: `pip install -e ".[api]"` then
-`uvicorn aidetect.api:app --host 0.0.0.0 --port 8000`.
+**`UNCERTAIN` is a real answer, not a failure.** It means the score landed where
+neither error rate is controlled. Treat it as "insufficient evidence" rather
+than re-running at a looser operating point and believing the result.
 
-Configuration is environment variables: `AIDETECT_MODEL_DIR` (point it at
-`/app/models_permissive` for the commercially usable ensemble),
-`AIDETECT_OPERATING_POINT`, `AIDETECT_THREADS` (0 = physical core count),
-`AIDETECT_MAX_BYTES`, `AIDETECT_MAX_FILES`.
+**`AI-EDITED`** means the metadata describes a generated *region* in an
+otherwise real photograph — a generative fill — which is a different claim from
+"this image was generated".
 
-Notes on the image, all of them load-bearing:
+### Status codes
 
+| | |
+|---|---|
+| `200` | scored. Per-file failures appear as `ERROR` results, not as an HTTP error |
+| `400` | empty upload, or an unknown `operating_point` |
+| `413` | a file over `AIDETECT_MAX_BYTES`, or more than `AIDETECT_MAX_FILES` |
+| `422` | the `files` field is missing |
+| `503` | the ensemble is still loading, or failed to load — `/health` says which |
+
+### Clients
+
+```python
+import requests
+
+with open("photo.jpg", "rb") as fh:
+    r = requests.post("http://127.0.0.1:8000/detect", files={"files": fh})
+result = r.json()["results"][0]
+print(result["verdict"], result["p_ai"])
+```
+
+```javascript
+const body = new FormData();
+body.append("files", file);                     // repeat for a batch
+const r = await fetch("http://127.0.0.1:8000/detect", { method: "POST", body });
+const { results } = await r.json();
+```
+
+### Configuration
+
+All environment variables:
+
+| variable | default | |
+|---|---|---|
+| `AIDETECT_MODEL_DIR` | `/app/models_permissive` | `/app/models` adds the CC-BY-NC member |
+| `AIDETECT_OPERATING_POINT` | `fpr5` | default decision line |
+| `AIDETECT_THREADS` | `0` | `0` = physical core count, which measured ~2x faster than using every SMT thread |
+| `AIDETECT_MAX_BYTES` | `33554432` | per-file upload cap (32 MB) |
+| `AIDETECT_MAX_FILES` | `16` | per-request file cap |
+
+### Running it in production
+
+The API has **no authentication, no rate limiting and no TLS** — it is meant to
+sit behind something that does. Put it on a private network or behind a reverse
+proxy, and keep the upload caps at or below what that proxy allows.
+
+Sizing, measured on the published image with 8 threads: **1.0 GB RSS** after
+loading, **1.3 GB** peak under load. Throughput was 402 ms for a single image
+and 297 ms each in a batch of 8 — batching amortises the per-request overhead,
+so send images together where you can.
+
+Scoring is CPU-bound and already uses every core, so scale by running more
+containers behind a load balancer, not by raising the worker count inside one:
+a second worker halves the threads each request gets and doubles memory for no
+throughput gain.
+
+`/health` is a readiness probe, not a liveness probe: it returns `503` for the
+first few seconds while the ensemble loads. Give any orchestrator a start period
+of at least 60 s.
+
+### If something does not work
+
+- **Connection refused on `localhost` while `127.0.0.1` works.** Where
+  `localhost` resolves to IPv6 `::1`, rootless Podman publishes the port on IPv4
+  only. Use `127.0.0.1`, or publish explicitly with `-p 127.0.0.1:8000:8000`.
+- **`503` right after starting.** The ensemble takes ~5 s to load. `/health`
+  returns `503` until it is ready, and names the failure if it never will be.
+- **`413` on a file you expected to work.** The cap is 32 MB per file and 16
+  files per request; raise `AIDETECT_MAX_BYTES` / `AIDETECT_MAX_FILES`, and
+  raise your reverse proxy's body limit to match.
+- **Everything comes back `UNCERTAIN`.** Usually heavy re-compression — see
+  [Robustness](#robustness-where-it-actually-breaks). It is the honest answer;
+  loosening the operating point buys recall at a stated cost in false positives.
+- **A verdict you disagree with.** Read `per_model`: one outlier among five
+  members reads very differently from unanimous agreement.
+
+### Notes on the image, all of them load-bearing
+
+- **The published image carries only MIT and Apache-2.0 weights.** It is built
+  with `MODEL_DIR=models_permissive`, because the default 5-member ensemble
+  includes `Organika/sdxl-detector` under **CC-BY-NC-3.0** — fine to run
+  locally, but publishing it would hand non-commercial weights to anyone who
+  pulls the image. The permissive ensemble costs 0.0008 AUROC. To build the
+  full one for your own use: `--build-arg MODEL_DIR=models`.
 - **The weights are baked in and `HF_HUB_OFFLINE=1`**, so the container never
-  reaches the network. Build with `--build-arg BAKE_MODELS=false` for a 1.5 GB
-  image instead and mount a populated HF cache at `/opt/models`.
+  reaches the network — verified by running it with `--network none`. Build with
+  `--build-arg BAKE_MODELS=false` for a 1.5 GB image instead and mount a
+  populated HF cache at `/opt/models`.
 - **Only the files inference reads are fetched.** Several of these checkpoints
   were pushed straight from a training run: `haywoodsloan` carries a 1.5 GB
   `optimizer.pt` and a duplicate checkpoint directory, `Organika` a 694 MB one,
   and `timm` ships a `.bin` duplicating its `.safetensors`. Pulling the repos
   whole costs **9.7 GB**; pulling what is loaded costs **1.7 GB**.
-- **One uvicorn worker, and one request scored at a time.** Inference is
-  CPU-bound and already uses every core; a second worker halves the threads each
-  request gets, finishes no sooner, and doubles peak memory.
-- Runs as a non-root user (uid 10001). Uploads are capped at 32 MB and 16 files
-  per request before anything reaches the decoder, which has its own
-  decompression-bomb limit.
+- Runs as a non-root user (uid 10001). Uploads are capped before anything
+  reaches the decoder, which has its own decompression-bomb limit.
 - Podman ignores `HEALTHCHECK` under the default OCI format; add
   `--format docker` if you want it honoured.
 
@@ -335,7 +489,7 @@ The code here is yours to use. The checkpoints are not uniformly permissive:
 |---|---|---|
 | `OwensLab/commfor-model-384` | MIT | yes |
 | `haywoodsloan/ai-image-detector-deploy` | Apache-2.0 | yes |
-| `Organika/sdxl-detector` | **CC-BY-NC-3.0** | yes (and only just) |
+| `Organika/sdxl-detector` | **CC-BY-NC-3.0** | yes (and only just; excluded from the published image) |
 | `timm/vit_pe_core_base_patch16_224.fb` (probe backbone) | Apache-2.0 | yes |
 | `OwensLab/commfor-model-224` | MIT | yes |
 | `Smogy/SMOGY-Ai-images-detector` | **CC-BY-NC-4.0** | no |
