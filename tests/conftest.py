@@ -34,8 +34,14 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def _no_network(request, monkeypatch):
-    """Make any socket call raise, so an accidental download fails loudly."""
-    if "slow" in request.keywords:
+    """Make any socket call raise, so an accidental download fails loudly.
+
+    `asgi` is exempt: Starlette's TestClient talks to the app in-process over an
+    ASGI transport, but the event-loop portal it runs the lifespan on allocates
+    a socketpair. That is local plumbing, not egress -- the exemption is kept to
+    that one marker rather than softened for everything.
+    """
+    if "slow" in request.keywords or "asgi" in request.keywords:
         return
 
     def blocked(*args, **kwargs):
