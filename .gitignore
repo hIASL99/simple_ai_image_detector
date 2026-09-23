@@ -1,0 +1,10 @@
+venv/
+.hf_cache/
+data/raw/
+data/bench/
+data/scores/
+data/scores_robust/
+__pycache__/
+*.pyc
+.pytest_cache/
+examples/

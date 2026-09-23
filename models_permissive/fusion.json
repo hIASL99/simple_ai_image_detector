@@ -1,0 +1,35 @@
+{
+  "backends": [
+    "commforensics384",
+    "clip-probe",
+    "haywoodsloan",
+    "commforensics224"
+  ],
+  "calibrators": {
+    "commforensics384": {
+      "a": 0.476334451164735,
+      "b": 3.5334653494494375
+    },
+    "haywoodsloan": {
+      "a": 0.3523083957497153,
+      "b": 1.9089088646013481
+    },
+    "commforensics224": {
+      "a": 0.5484577946119638,
+      "b": 2.021698078689914
+    },
+    "clip-probe": {
+      "a": 1.449219085766425,
+      "b": 1.2189045220586423
+    }
+  },
+  "weights": {},
+  "thresholds": {
+    "fpr1": 0.8422492590692916,
+    "fpr5": 0.7241495558491208,
+    "fpr10": 0.6418882274404399,
+    "balanced": 0.5,
+    "abstain_low": 0.5271560140709308
+  },
+  "dtype": "bfloat16"
+}

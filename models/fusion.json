@@ -1,0 +1,40 @@
+{
+  "backends": [
+    "commforensics384",
+    "clip-probe",
+    "haywoodsloan",
+    "commforensics224",
+    "organika-sdxl"
+  ],
+  "calibrators": {
+    "commforensics384": {
+      "a": 0.476334451164735,
+      "b": 3.5334653494494375
+    },
+    "haywoodsloan": {
+      "a": 0.3523083957497153,
+      "b": 1.9089088646013481
+    },
+    "commforensics224": {
+      "a": 0.5484577946119638,
+      "b": 2.021698078689914
+    },
+    "organika-sdxl": {
+      "a": 0.15898301630217943,
+      "b": 1.3381631988760947
+    },
+    "clip-probe": {
+      "a": 1.449219085766425,
+      "b": 1.2189045220586423
+    }
+  },
+  "weights": {},
+  "thresholds": {
+    "fpr1": 0.815121562553877,
+    "fpr5": 0.7115239744244183,
+    "fpr10": 0.6439323890779922,
+    "balanced": 0.5,
+    "abstain_low": 0.5437693116611861
+  },
+  "dtype": "bfloat16"
+}

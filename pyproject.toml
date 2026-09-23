@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aidetect"
+version = "0.1.0"
+description = "Local, offline detection of AI-generated images"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "transformers>=4.44",
+    "timm>=1.0",
+    "pillow>=10",
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "huggingface_hub>=0.24",
+    "safetensors>=0.4",
+]
+
+[project.optional-dependencies]
+# Only the benchmark needs these; the detector itself does not.
+bench = ["pyarrow>=15", "pandas>=2", "scipy>=1.11"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+aidetect = "aidetect.cli:main"
+
+[tool.setuptools]
+packages = ["aidetect"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: needs the downloaded model checkpoints; skipped unless --runslow is given",
+]
