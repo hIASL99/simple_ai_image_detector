@@ -1,0 +1,16 @@
+venv/
+.hf_cache/
+data/
+examples/
+reports/
+tests/
+.git/
+.gitignore
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+Dockerfile
+.dockerignore
+*.png
+*.jpg

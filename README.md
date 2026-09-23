@@ -83,6 +83,57 @@ d = Detector.load()
 print(d.predict("photo.jpg").as_dict())
 ```
 
+## HTTP API and container
+
+```
+podman build -t aidetect .          # or docker build
+podman run -p 8000:8000 aidetect
+curl -F "files=@photo.jpg" localhost:8000/detect
+```
+
+```json
+{"results": [{"filename": "photo.jpg", "verdict": "AI-GENERATED", "p_ai": 0.9694,
+              "threshold": 0.7115, "low_threshold": 0.5438,
+              "basis": "pixel ensemble (moderate, 5 models)",
+              "per_model": {"clip-probe": 0.9966, "commforensics384": 0.9377, "...": 0.0},
+              "metadata_says_ai": false, "truncated": false, "error": null}],
+ "elapsed_ms": 807, "operating_point": "fpr5"}
+```
+
+| endpoint | purpose |
+|---|---|
+| `POST /detect` | multipart upload, one or many files. `?operating_point=fpr1\|fpr5\|fpr10\|balanced`, `?metadata=false` |
+| `GET /health` | 200 when the ensemble is loaded, 503 with the reason while it is not |
+| `GET /info` | ensemble members and their licences, thresholds, limits |
+| `GET /docs` | generated OpenAPI browser |
+
+Without a container: `pip install -e ".[api]"` then
+`uvicorn aidetect.api:app --host 0.0.0.0 --port 8000`.
+
+Configuration is environment variables: `AIDETECT_MODEL_DIR` (point it at
+`/app/models_permissive` for the commercially usable ensemble),
+`AIDETECT_OPERATING_POINT`, `AIDETECT_THREADS` (0 = physical core count),
+`AIDETECT_MAX_BYTES`, `AIDETECT_MAX_FILES`.
+
+Notes on the image, all of them load-bearing:
+
+- **The weights are baked in and `HF_HUB_OFFLINE=1`**, so the container never
+  reaches the network. Build with `--build-arg BAKE_MODELS=false` for a 1.5 GB
+  image instead and mount a populated HF cache at `/opt/models`.
+- **Only the files inference reads are fetched.** Several of these checkpoints
+  were pushed straight from a training run: `haywoodsloan` carries a 1.5 GB
+  `optimizer.pt` and a duplicate checkpoint directory, `Organika` a 694 MB one,
+  and `timm` ships a `.bin` duplicating its `.safetensors`. Pulling the repos
+  whole costs **9.7 GB**; pulling what is loaded costs **1.7 GB**.
+- **One uvicorn worker, and one request scored at a time.** Inference is
+  CPU-bound and already uses every core; a second worker halves the threads each
+  request gets, finishes no sooner, and doubles peak memory.
+- Runs as a non-root user (uid 10001). Uploads are capped at 32 MB and 16 files
+  per request before anything reaches the decoder, which has its own
+  decompression-bomb limit.
+- Podman ignores `HEALTHCHECK` under the default OCI format; add
+  `--format docker` if you want it honoured.
+
 ## How it works
 
 **1. Provenance metadata, first and cheaply.** A1111 `parameters` blocks, ComfyUI node graphs,
@@ -242,7 +293,7 @@ there is a two-parameter channel. Refitting the probe strictly inside every fold
 Scoring is the expensive step — hours of CPU for the full cross-product — and is cached per
 (checkpoint, protocol) in `data/scores/`.
 
-Tests: `./venv/bin/python -m pytest` (255 tests, no network, no model downloads; a socket guard
+Tests: `./venv/bin/python -m pytest` (268 tests, no network, no model downloads; a socket guard
 fails any test that tries). `--runslow` additionally runs the checkpoint-dependent tests.
 
 ## Limitations

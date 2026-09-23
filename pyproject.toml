@@ -22,7 +22,8 @@ dependencies = [
 [project.optional-dependencies]
 # Only the benchmark needs these; the detector itself does not.
 bench = ["pyarrow>=15", "pandas>=2", "scipy>=1.11"]
-dev = ["pytest>=8"]
+api = ["fastapi>=0.115", "uvicorn[standard]>=0.30", "python-multipart>=0.0.9"]
+dev = ["pytest>=8", "fastapi>=0.115", "httpx>=0.27", "python-multipart>=0.0.9"]
 
 [project.scripts]
 aidetect = "aidetect.cli:main"
@@ -34,4 +35,5 @@ packages = ["aidetect"]
 testpaths = ["tests"]
 markers = [
     "slow: needs the downloaded model checkpoints; skipped unless --runslow is given",
+    "asgi: drives the app in-process with Starlette's TestClient; exempt from the socket guard",
 ]

@@ -1,0 +1,24 @@
+services:
+  aidetect:
+    build:
+      context: .
+      args:
+        # false builds a ~900 MB image with no weights; mount a populated
+        # HF cache at /opt/models instead. true bakes them in (~3.5 GB) so
+        # the container needs no network at all.
+        BAKE_MODELS: "true"
+    image: aidetect:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # 0 lets the detector pick the physical core count, which measured about
+      # twice as fast as using every SMT thread.
+      AIDETECT_THREADS: "0"
+      AIDETECT_OPERATING_POINT: "fpr5"
+      AIDETECT_MAX_BYTES: "33554432"
+      AIDETECT_MAX_FILES: "16"
+      # models_permissive drops the one CC-BY-NC checkpoint for 0.0008 AUROC.
+      # AIDETECT_MODEL_DIR: /app/models_permissive
+    # volumes:
+    #   - ./hf-cache:/opt/models:ro   # with BAKE_MODELS=false
+    restart: unless-stopped
