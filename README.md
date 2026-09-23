@@ -86,9 +86,14 @@ print(d.predict("photo.jpg").as_dict())
 ## HTTP API and container
 
 ```
-podman build -t aidetect .          # or docker build
-podman run -p 8000:8000 aidetect
+docker run -p 8000:8000 matthiaswindisch/simple_ai_image_detector:0.1.0
 curl -F "files=@photo.jpg" localhost:8000/detect
+```
+
+Or build it yourself (`podman` works identically):
+
+```
+docker build -t aidetect --build-arg MODEL_DIR=models_permissive .
 ```
 
 ```json
@@ -117,9 +122,16 @@ Configuration is environment variables: `AIDETECT_MODEL_DIR` (point it at
 
 Notes on the image, all of them load-bearing:
 
+- **The published image carries only MIT and Apache-2.0 weights.** It is built
+  with `MODEL_DIR=models_permissive`, because the default 5-member ensemble
+  includes `Organika/sdxl-detector` under **CC-BY-NC-3.0** — fine to run
+  locally, but publishing it would hand non-commercial weights to anyone who
+  pulls the image. The permissive ensemble costs 0.0008 AUROC. To build the
+  full one for your own use: `--build-arg MODEL_DIR=models`.
 - **The weights are baked in and `HF_HUB_OFFLINE=1`**, so the container never
-  reaches the network. Build with `--build-arg BAKE_MODELS=false` for a 1.5 GB
-  image instead and mount a populated HF cache at `/opt/models`.
+  reaches the network — verified by running it with `--network none`. Build with
+  `--build-arg BAKE_MODELS=false` for a 1.5 GB image instead and mount a
+  populated HF cache at `/opt/models`.
 - **Only the files inference reads are fetched.** Several of these checkpoints
   were pushed straight from a training run: `haywoodsloan` carries a 1.5 GB
   `optimizer.pt` and a duplicate checkpoint directory, `Organika` a 694 MB one,
@@ -335,7 +347,7 @@ The code here is yours to use. The checkpoints are not uniformly permissive:
 |---|---|---|
 | `OwensLab/commfor-model-384` | MIT | yes |
 | `haywoodsloan/ai-image-detector-deploy` | Apache-2.0 | yes |
-| `Organika/sdxl-detector` | **CC-BY-NC-3.0** | yes (and only just) |
+| `Organika/sdxl-detector` | **CC-BY-NC-3.0** | yes (and only just; excluded from the published image) |
 | `timm/vit_pe_core_base_patch16_224.fb` (probe backbone) | Apache-2.0 | yes |
 | `OwensLab/commfor-model-224` | MIT | yes |
 | `Smogy/SMOGY-Ai-images-detector` | **CC-BY-NC-4.0** | no |

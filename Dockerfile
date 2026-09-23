@@ -33,6 +33,11 @@ RUN pip install --no-deps -e .
 # and 9.7 GB. Set BAKE_MODELS=false to build a slim image and mount /opt/models
 # at run time instead.
 ARG BAKE_MODELS=true
+# models         -> the 5-member ensemble, which includes Organika/sdxl-detector
+#                   (CC-BY-NC-3.0). Fine locally; NOT redistributable in a public
+#                   image, because anyone pulling it may use it commercially.
+# models_permissive -> MIT + Apache-2.0 only, and costs 0.0008 AUROC. This is the
+#                   one to publish.
 ARG MODEL_DIR=models
 # mkdir unconditionally: the runtime stage copies this path either way, and a
 # COPY from a directory that was never created fails the whole build.
@@ -46,6 +51,18 @@ RUN mkdir -p /opt/models \
 
 FROM python:3.12-slim AS runtime
 
+# Re-declared: build args do not cross stages.
+ARG MODEL_DIR=models
+ARG VERSION=0.1.0
+ARG LICENSES="MIT AND Apache-2.0"
+
+LABEL org.opencontainers.image.title="aidetect" \
+      org.opencontainers.image.description="Local, offline detection of AI-generated images" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/hIASL99/simple_ai_image_detector" \
+      org.opencontainers.image.licenses="${LICENSES}" \
+      io.aidetect.ensemble="${MODEL_DIR}"
+
 # libgomp is OpenMP, which torch needs for CPU threading; the slim base omits it.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libgomp1 curl \
@@ -58,7 +75,7 @@ ENV HF_HOME=/opt/models \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     OMP_NUM_THREADS=0 \
-    AIDETECT_MODEL_DIR=/app/models \
+    AIDETECT_MODEL_DIR=/app/${MODEL_DIR} \
     AIDETECT_OPERATING_POINT=fpr5
 
 COPY --from=build /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
